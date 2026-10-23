@@ -21,6 +21,7 @@ Thumbs.db
 churn_results/
 *.pkl
 *.png
+!docs/*.png
 
 # Jupyter
 .ipynb_checkpoints/
