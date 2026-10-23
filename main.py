@@ -5,9 +5,11 @@ Adapted for VS Code + Python 3.12 (no Google Colab dependency).
 
 Project layout:
     C:\\Users\\User\\Desktop\\CodingML\\telecom\\
-        ├── main.py                 ← this script
-        ├── telecom_users.csv       ← dataset
-        └── churn_results\\          ← output folder (created automatically)
+        ├── main.py                 <- this script
+        ├── data\\
+        │   └── telecom_users.csv   <- dataset (recommended location)
+        ├── requirements.txt
+        └── churn_results\\          <- output folder (created automatically)
 """
 
 import warnings
@@ -36,8 +38,18 @@ warnings.filterwarnings("ignore")
 # Project root folder
 PROJECT_DIR = Path(r"C:\Users\User\Desktop\CodingML\telecom")
 
-# Dataset path (kept inside the project folder)
-DATA_FILE = PROJECT_DIR / "telecom_users.csv"
+# Data folder — recommended location for the dataset
+DATA_DIR = PROJECT_DIR / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# Dataset filename expected by the pipeline
+DATA_FILENAME = "telecom_users.csv"
+
+# Primary dataset location (recommended)
+DATA_FILE = DATA_DIR / DATA_FILENAME
+
+# Legacy location in the project root (kept for backward compatibility)
+LEGACY_DATA_FILE = PROJECT_DIR / DATA_FILENAME
 
 # Output folder for plots, models and metrics
 RESULTS_DIR = PROJECT_DIR / "churn_results"
@@ -64,6 +76,18 @@ def save_fig(name: str) -> None:
     plt.close()
 
 
+def _resolve_data_file() -> Path:
+    """Return the dataset path: data/ first, then project root.
+
+    Keeps backward compatibility so existing setups (CSV in project root)
+    continue to work without moving files.
+    """
+    for path in (DATA_FILE, LEGACY_DATA_FILE):
+        if path.exists():
+            return path
+    return DATA_FILE  # default path — used in the error message
+
+
 # ==================== 1. LOAD DATA ====================
 def load_data() -> pd.DataFrame:
     """Load the raw CSV file and perform a first sanity check."""
@@ -71,13 +95,18 @@ def load_data() -> pd.DataFrame:
     print("1. LOADING AND INITIAL DATA OVERVIEW")
     print("=" * 60)
 
-    if not DATA_FILE.exists():
+    data_file = _resolve_data_file()
+    if not data_file.exists():
         raise FileNotFoundError(
-            f"Dataset not found: {DATA_FILE.resolve()}\n"
-            "Place 'telecom_users.csv' next to the script."
+            f"Dataset not found.\n"
+            f"  Expected: {DATA_FILE.resolve()}\n"
+            f"  Or (legacy): {LEGACY_DATA_FILE.resolve()}\n\n"
+            f"Place '{DATA_FILENAME}' into the data/ folder.\n"
+            f"See data/README.md for download instructions."
         )
 
-    df = pd.read_csv(DATA_FILE)
+    print(f"Reading: {data_file}")
+    df = pd.read_csv(data_file)
 
     # Drop columns that are not useful for modelling
     df = df.drop(
@@ -451,10 +480,19 @@ def detail_best(best_name: str, best_model, X_te, y_te) -> None:
 
 
 # ==================== 10. FEATURE IMPORTANCE ====================
-def feature_importance(best_name: str, best_model, columns) -> pd.DataFrame | None:
-    """Plot and print top features by importance (tree-based models only)."""
-    if not hasattr(best_model, "feature_importances_"):
-        print("\n(Model has no feature_importances_ attribute)")
+def feature_importance(best_name: str, best_model, columns):
+    """Plot and print top features by importance.
+
+    Supports tree-based models (feature_importances_) and linear models
+    (|coef_| as a proxy for importance).
+    """
+    # Extract importance values: tree models or linear coefficients
+    if hasattr(best_model, "feature_importances_"):
+        values = best_model.feature_importances_
+    elif hasattr(best_model, "coef_"):
+        values = np.abs(best_model.coef_[0])
+    else:
+        print("\n(Model supports neither feature_importances_ nor coef_)")
         return None
 
     print("\n" + "=" * 60)
@@ -463,7 +501,7 @@ def feature_importance(best_name: str, best_model, columns) -> pd.DataFrame | No
 
     imp = pd.DataFrame({
         "feature": columns,
-        "importance": best_model.feature_importances_,
+        "importance": values,
     }).sort_values("importance", ascending=False)
 
     plt.figure(figsize=(10, 6))
